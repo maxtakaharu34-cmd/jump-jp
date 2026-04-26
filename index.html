@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+<meta name="theme-color" content="#bce4ff" />
+<title>無限ジャンプ</title>
+<link href="https://fonts.googleapis.com/css2?family=Mochiy+Pop+P+One&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box}html,body{margin:0;padding:0;height:100%;overflow:hidden}
+body{font-family:system-ui,sans-serif;color:#08315f;background:linear-gradient(180deg,#bce4ff,#5fc4ff);touch-action:none;user-select:none;-webkit-tap-highlight-color:transparent}
+#app{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;padding:8px;gap:6px}
+.title{font-family:"Mochiy Pop P One",sans-serif;font-size:18px;color:#fff;-webkit-text-stroke:2px #08315f;paint-order:stroke fill;margin:4px 0}
+.hud{display:flex;justify-content:space-between;width:100%;max-width:480px;gap:8px;font-size:13px;font-weight:bold}
+.hud .box{background:rgba(255,255,255,.85);border:2px solid #08315f;border-radius:10px;padding:4px 10px}
+canvas{flex:1;width:100%;max-width:480px;background:linear-gradient(180deg,#dfeefb,#bce4ff);border:3px solid #08315f;border-radius:14px;box-shadow:3px 3px 0 #08315f;touch-action:none}
+.over{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:50}
+.over.show{display:flex}
+.over .panel{background:#fff;border:3px solid #08315f;border-radius:18px;padding:20px;text-align:center;display:flex;flex-direction:column;gap:10px;max-width:90%}
+.over .panel h2{margin:0;font-family:"Mochiy Pop P One",sans-serif;color:#ef4444}
+.over .panel button{background:#5fc4ff;color:#fff;border:3px solid #08315f;padding:10px 18px;border-radius:999px;font-family:"Mochiy Pop P One",sans-serif;cursor:pointer;font-size:14px;box-shadow:3px 3px 0 #08315f}
+.hint{font-size:10px;color:#08315f;opacity:.7;text-align:center}
+</style>
+</head>
+<body>
+<div id="app">
+<h1 class="title">無限ジャンプ 🐰</h1>
+<div class="hud">
+  <div class="box">高さ: <span id="h">0</span> m</div>
+  <div class="box">最高: <span id="hi">0</span> m</div>
+</div>
+<canvas id="cv"></canvas>
+<div class="hint">スマホ：左右にスワイプで移動 / PC: ←→ キー</div>
+</div>
+<div class="over" id="over">
+  <div class="panel">
+    <h2>💥 落下！</h2>
+    <div>高さ <span id="o-h">0</span> m</div>
+    <div id="o-best" style="font-size:11px;color:#666"></div>
+    <button id="btn-retry">もう一度</button>
+  </div>
+</div>
+<script>
+(()=>{
+'use strict';
+const $=(id)=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d');
+const HI_KEY='jump_jp_hi';
+let W,H,player,plats,scrollY,best=parseInt(localStorage.getItem(HI_KEY)||'0',10);
+let touchX=null,keyL=false,keyR=false,vx=0,gameOver=false,enemies=[];
+function resize(){const r=cv.getBoundingClientRect();cv.width=r.width;cv.height=r.height;W=cv.width;H=cv.height}
+function start(){
+  resize();
+  player={x:W/2,y:H-100,vy:0,r:18};
+  plats=[];scrollY=0;vx=0;gameOver=false;enemies=[];
+  // initial platforms
+  for(let i=0;i<8;i++)plats.push({x:Math.random()*(W-60),y:H-60-i*70,w:60,used:false,kind:'normal'});
+  $('over').classList.remove('show');
+  $('hi').textContent=best;
+  loop();
+}
+function spawnPlat(y){
+  const r=Math.random();
+  let kind='normal';
+  if(r<.15)kind='moving';else if(r<.20)kind='break';
+  return{x:Math.random()*(W-60),y,w:60,used:false,kind,vx:kind==='moving'?(Math.random()<.5?-1:1)*1.5:0,broken:false}
+}
+function loop(){
+  if(gameOver)return;
+  ctx.clearRect(0,0,W,H);
+  // physics
+  player.vy+=0.4;
+  player.y+=player.vy;
+  // horizontal
+  if(touchX!=null){const dx=touchX-player.x;vx=Math.max(-7,Math.min(7,dx*0.2))}
+  else if(keyL)vx=-5;else if(keyR)vx=5;else vx*=.85;
+  player.x+=vx;
+  if(player.x<-20)player.x=W+20;if(player.x>W+20)player.x=-20;
+  // scroll when player above mid
+  if(player.y<H/2){const dy=H/2-player.y;player.y=H/2;scrollY+=dy;
+    plats.forEach(p=>p.y+=dy);enemies.forEach(e=>e.y+=dy);
+    plats=plats.filter(p=>p.y<H+20&&!p.broken);enemies=enemies.filter(e=>e.y<H+30);
+    while(plats.length<10){const top=Math.min(...plats.map(p=>p.y),H);plats.push(spawnPlat(top-60-Math.random()*40))}
+    if(scrollY>500&&Math.random()<.005)enemies.push({x:Math.random()*(W-30)+15,y:-20,r:14});
+  }
+  // moving platforms
+  plats.forEach(p=>{if(p.kind==='moving'){p.x+=p.vx;if(p.x<0||p.x>W-p.w)p.vx*=-1}});
+  // collision with platforms (only when falling)
+  if(player.vy>0){
+    for(const p of plats){
+      if(p.broken)continue;
+      if(player.x>p.x-10 && player.x<p.x+p.w+10 && player.y+player.r>p.y && player.y+player.r<p.y+12){
+        player.vy=-12;
+        if(p.kind==='break'){p.broken=true;beep(220,.1,'sawtooth')}
+        else beep(880,.06);
+        break;
+      }
+    }
+  }
+  // enemy collision
+  for(const e of enemies){
+    const dx=player.x-e.x,dy=player.y-e.y;
+    if(dx*dx+dy*dy<(player.r+e.r)*(player.r+e.r)){gameOver=true;break}
+  }
+  // draw platforms
+  plats.forEach(p=>{
+    if(p.broken)return;
+    ctx.fillStyle=p.kind==='moving'?'#ff8855':p.kind==='break'?'#ff5fa2':'#10b981';
+    ctx.fillRect(p.x,p.y,p.w,8);
+    ctx.fillStyle='rgba(0,0,0,.2)';ctx.fillRect(p.x,p.y+8,p.w,3);
+  });
+  // draw enemies
+  enemies.forEach(e=>{
+    ctx.fillStyle='#ef4444';ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff';ctx.font='14px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('💀',e.x,e.y);
+  });
+  // draw player
+  ctx.font='34px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText('🐰',player.x,player.y);
+  // height
+  const m=Math.floor(scrollY/8);
+  $('h').textContent=m;
+  // fall = game over
+  if(player.y>H+50)gameOver=true;
+  if(gameOver){
+    if(m>best){best=m;localStorage.setItem(HI_KEY,String(best));$('o-best').textContent='🏆 自己ベスト更新！'}
+    else $('o-best').textContent='ベスト: '+best+' m';
+    $('o-h').textContent=m;$('over').classList.add('show');
+    beep(220,.4,'sawtooth',.15);return;
+  }
+  requestAnimationFrame(loop);
+}
+let ac=null;const en=()=>{if(!ac)ac=new(window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume();return ac};
+const beep=(f,d,t='triangle',g=.1)=>{const a=en();const o=a.createOscillator();const gn=a.createGain();o.type=t;o.frequency.value=f;gn.gain.value=g;gn.gain.exponentialRampToValueAtTime(.0001,a.currentTime+d);o.connect(gn).connect(a.destination);o.start();o.stop(a.currentTime+d)};
+cv.addEventListener('touchstart',e=>{en();touchX=e.touches[0].clientX-cv.getBoundingClientRect().left;e.preventDefault()},{passive:false});
+cv.addEventListener('touchmove',e=>{touchX=e.touches[0].clientX-cv.getBoundingClientRect().left;e.preventDefault()},{passive:false});
+cv.addEventListener('touchend',e=>{touchX=null;e.preventDefault()},{passive:false});
+window.addEventListener('keydown',e=>{if(e.key==='ArrowLeft')keyL=true;if(e.key==='ArrowRight')keyR=true});
+window.addEventListener('keyup',e=>{if(e.key==='ArrowLeft')keyL=false;if(e.key==='ArrowRight')keyR=false});
+window.addEventListener('resize',resize);
+$('btn-retry').addEventListener('click',()=>{en();start()});
+start();
+})();
+</script>
+</body>
+</html>
